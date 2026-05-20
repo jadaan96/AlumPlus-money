@@ -1,0 +1,13 @@
+# بناء الواجهة فقط — الـ API منفصل (انظر docs/NETLIFY.md)
+[build]
+  command = "npm ci && npm run build -w @workshop/shared && npm run build -w @workshop/web"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# تطبيق React Router (SPA)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

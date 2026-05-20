@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkshopStatus {
+  COLLECTING
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Period {
+  id        String   @id @default(uuid())
+  year      Int
+  month     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  workshops Workshop[]
+  expenses  Expense[]
+  salaries  SalaryEntry[]
+  payments  Payment[]
+
+  @@unique([year, month])
+  @@map("periods")
+}
+
+model Workshop {
+  id              String         @id @default(uuid())
+  periodId        String         @map("period_id")
+  name            String
+  totalAmount     Decimal        @default(0) @map("total_amount") @db.Decimal(14, 2)
+  location        String?
+  receivedAmount  Decimal        @default(0) @map("received_amount") @db.Decimal(14, 2)
+  remainingAmount Decimal        @default(0) @map("remaining_amount") @db.Decimal(14, 2)
+  deliveryDate    DateTime?      @map("delivery_date") @db.Date
+  receivedDate    DateTime?      @map("received_date") @db.Date
+  status          WorkshopStatus @default(COLLECTING)
+  sectionType     String?        @map("section_type")
+  source          String?
+  phone           String?
+  notes           String?
+  link            String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  period          Period         @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId])
+  @@index([name])
+  @@index([status])
+  @@map("workshops")
+}
+
+model ExpenseCategory {
+  id    String    @id @default(uuid())
+  key   String    @unique
+  label String
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id          String          @id @default(uuid())
+  periodId    String          @map("period_id")
+  categoryId  String          @map("category_id")
+  amount      Decimal         @db.Decimal(14, 2)
+  description String?
+  expenseDate DateTime        @default(now()) @map("expense_date") @db.Date
+  createdAt   DateTime        @default(now()) @map("created_at")
+  period      Period          @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([periodId])
+  @@map("expenses")
+}
+
+model Employee {
+  id           String        @id @default(uuid())
+  name         String
+  active       Boolean       @default(true)
+  weeklySalary Decimal       @default(0) @map("weekly_salary") @db.Decimal(14, 2)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  salaries     SalaryEntry[]
+  payments     Payment[]
+
+  @@map("employees")
+}
+
+model SalaryEntry {
+  id          String   @id @default(uuid())
+  periodId    String   @map("period_id")
+  employeeId  String   @map("employee_id")
+  week1       Decimal  @default(0) @db.Decimal(14, 2)
+  week2       Decimal  @default(0) @db.Decimal(14, 2)
+  week3       Decimal  @default(0) @db.Decimal(14, 2)
+  week4       Decimal  @default(0) @db.Decimal(14, 2)
+  weekDetails Json     @default("[]") @map("week_details")
+  total       Decimal  @default(0) @db.Decimal(14, 2)
+  period      Period   @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, employeeId])
+  @@map("salary_entries")
+}
+
+model Payment {
+  id            String    @id @default(uuid())
+  periodId      String    @map("period_id")
+  invoiceNumber String?   @map("invoice_number")
+  amount        Decimal   @db.Decimal(14, 2)
+  paymentDate   DateTime  @default(now()) @map("payment_date") @db.Date
+  employeeId    String?   @map("employee_id")
+  rankReceived  String?   @map("rank_received")
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  period        Period    @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee      Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([periodId])
+  @@map("payments")
+}

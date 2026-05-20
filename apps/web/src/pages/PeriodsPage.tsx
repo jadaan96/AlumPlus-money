@@ -1,0 +1,96 @@
+import { useEffect, useState, FormEvent } from "react";
+import { api } from "@/lib/api";
+import { usePeriod } from "@/context/PeriodContext";
+import { formatMoney, formatPeriod } from "@/lib/format";
+import { PageHeader, Button, Card, Table, Th, Td, Input, Label } from "@/components/ui";
+
+interface PeriodRow {
+  id: string;
+  year: number;
+  month: number;
+  label: string;
+  summary: {
+    workshopsCount: number;
+    workshopsTotal: number;
+    workshopsReceived: number;
+    workshopsRemaining: number;
+    expensesTotal: number;
+    salariesTotal: number;
+    paymentsTotal: number;
+  };
+}
+
+export default function PeriodsPage() {
+  const { setPeriodId } = usePeriod();
+  const [periods, setPeriods] = useState<PeriodRow[]>([]);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+
+  const load = () => api<PeriodRow[]>("/api/periods").then(setPeriods);
+
+  useEffect(() => {
+    load().catch(console.error);
+  }, []);
+
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+    await api("/api/periods", { method: "POST", body: JSON.stringify({ year, month }) });
+    await load();
+  };
+
+  return (
+    <div>
+      <PageHeader title="الفترات الشهرية" />
+
+      <Card className="mb-6 max-w-md">
+        <h2 className="mb-4 font-semibold">إنشاء فترة جديدة</h2>
+        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3">
+          <div>
+            <Label>السنة</Label>
+            <Input type="number" value={year} onChange={(e) => setYear(+e.target.value)} />
+          </div>
+          <div>
+            <Label>الشهر</Label>
+            <Input type="number" min={1} max={12} value={month} onChange={(e) => setMonth(+e.target.value)} />
+          </div>
+          <Button type="submit">إنشاء</Button>
+        </form>
+      </Card>
+
+      <Table>
+        <thead>
+          <tr>
+            <Th>الفترة</Th>
+            <Th>عدد الورش</Th>
+            <Th>الإجمالي</Th>
+            <Th>المستلم</Th>
+            <Th>المتبقي</Th>
+            <Th>مصروفات</Th>
+            <Th>رواتب</Th>
+            <Th>مدفوعات</Th>
+            <Th></Th>
+          </tr>
+        </thead>
+        <tbody>
+          {periods.map((p) => (
+            <tr key={p.id}>
+              <Td className="font-medium">{p.label || formatPeriod(p.year, p.month)}</Td>
+              <Td>{p.summary.workshopsCount}</Td>
+              <Td>{formatMoney(p.summary.workshopsTotal)}</Td>
+              <Td>{formatMoney(p.summary.workshopsReceived)}</Td>
+              <Td>{formatMoney(p.summary.workshopsRemaining)}</Td>
+              <Td>{formatMoney(p.summary.expensesTotal)}</Td>
+              <Td>{formatMoney(p.summary.salariesTotal)}</Td>
+              <Td>{formatMoney(p.summary.paymentsTotal)}</Td>
+              <Td>
+                <Button variant="secondary" onClick={() => setPeriodId(p.id)}>
+                  اختيار
+                </Button>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </div>
+  );
+}
