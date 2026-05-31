@@ -15,7 +15,9 @@
     "db:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-db.ps1",
     "db:migrate": "npm run db:migrate -w workshop-backend",
     "db:deploy": "npm run db:deploy -w workshop-backend",
-    "db:seed": "npm run db:seed -w workshop-backend"
+    "db:seed": "npm run db:seed -w workshop-backend",
+    "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
+    "db:backup:schedule": "powershell -ExecutionPolicy Bypass -File scripts/register-backup-schedule.ps1"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent, useMemo } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { api } from "@/lib/api";
 import { usePeriod } from "@/context/PeriodContext";
 import { formatMoney } from "@/lib/format";
@@ -30,7 +30,20 @@ interface Expense {
   description: string | null;
   expenseDate: string;
   categoryId: string;
+  onCredit: boolean;
+  vendorName: string | null;
+  invoiceNumber: string | null;
   category: ExpenseCategory;
+}
+
+interface VendorPayment {
+  id: string;
+  amount: number;
+  paymentDate: string;
+  vendorName: string | null;
+  notes: string | null;
+  isVendorCredit: boolean;
+  expenseId?: string | null;
 }
 
 interface CategorySummary {
@@ -54,22 +67,37 @@ const CHART_COLORS = [
   "#84cc16",
 ];
 
+const emptyForm = () => ({
+  categoryKey: "",
+  amount: 0,
+  description: "",
+  expenseDate: new Date().toISOString().slice(0, 10),
+  onCredit: false,
+  vendorName: "",
+  invoiceNumber: "",
+});
+
 export default function ExpensesPage() {
   const { periodId } = usePeriod();
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [items, setItems] = useState<Expense[]>([]);
   const [total, setTotal] = useState(0);
+  const [vendorPayablesRemaining, setVendorPayablesRemaining] = useState(0);
+  const [vendorCreditTotal, setVendorCreditTotal] = useState(0);
+  const [vendorPayments, setVendorPayments] = useState<VendorPayment[]>([]);
   const [chartData, setChartData] = useState<CategorySummary[]>([]);
   const [chartTotal, setChartTotal] = useState(0);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [payModalOpen, setPayModalOpen] = useState(false);
   const [newCategoryLabel, setNewCategoryLabel] = useState("");
-  const [form, setForm] = useState({
-    categoryKey: "",
+  const [form, setForm] = useState(emptyForm());
+  const [payForm, setPayForm] = useState({
     amount: 0,
-    description: "",
-    expenseDate: new Date().toISOString().slice(0, 10),
+    paymentDate: new Date().toISOString().slice(0, 10),
+    vendorName: "",
+    notes: "",
   });
 
   const loadCategories = () =>
@@ -83,12 +111,24 @@ export default function ExpensesPage() {
   const loadExpenses = () => {
     if (!periodId) return;
     const q = categoryFilter ? `?categoryId=${categoryFilter}` : "";
-    api<{ items: Expense[]; total: number }>(`/api/expenses/period/${periodId}${q}`).then(
-      (d) => {
-        setItems(d.items);
-        setTotal(d.total);
-      }
-    );
+    api<{
+      items: Expense[];
+      total: number;
+      vendorCreditTotal: number;
+      vendorPayablesRemaining: number;
+    }>(`/api/expenses/period/${periodId}${q}`).then((d) => {
+      setItems(d.items);
+      setTotal(d.total);
+      setVendorCreditTotal(d.vendorCreditTotal ?? 0);
+      setVendorPayablesRemaining(d.vendorPayablesRemaining ?? 0);
+    });
+  };
+
+  const loadVendorPayments = () => {
+    if (!periodId) return;
+    api<{ items: VendorPayment[] }>(`/api/payments/period/${periodId}`).then((d) => {
+      setVendorPayments(d.items.filter((p) => p.isVendorCredit || p.expenseId));
+    });
   };
 
   const loadChart = () => {
@@ -105,25 +145,65 @@ export default function ExpensesPage() {
     await loadCategories();
     loadExpenses();
     loadChart();
+    loadVendorPayments();
   };
 
   useEffect(() => {
     load().catch(console.error);
   }, [periodId, categoryFilter]);
 
-  const filteredChartData = useMemo(() => {
-    if (!categoryFilter) return chartData;
-    return chartData.filter((c) => c.categoryId === categoryFilter);
-  }, [chartData, categoryFilter]);
+  const filteredChartData = categoryFilter
+    ? chartData.filter((c) => c.categoryId === categoryFilter)
+    : chartData;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!periodId || !form.categoryKey) return;
     await api("/api/expenses", {
       method: "POST",
-      body: JSON.stringify({ ...form, periodId }),
+      body: JSON.stringify({
+        ...form,
+        periodId,
+        vendorName: form.onCredit ? form.vendorName : null,
+        invoiceNumber: form.invoiceNumber || null,
+      }),
     });
     setModalOpen(false);
+    setForm(emptyForm());
+    load();
+  };
+
+  const openPayModal = () => {
+    setPayForm({
+      amount: 0,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      vendorName: "",
+      notes: "",
+    });
+    setPayModalOpen(true);
+  };
+
+  const submitPay = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!periodId) return;
+    await api("/api/payments", {
+      method: "POST",
+      body: JSON.stringify({
+        periodId,
+        isVendorCredit: true,
+        amount: payForm.amount,
+        paymentDate: payForm.paymentDate,
+        vendorName: payForm.vendorName || null,
+        notes: payForm.notes || "دفع ذمم تجار",
+      }),
+    });
+    setPayModalOpen(false);
+    load();
+  };
+
+  const deleteVendorPayment = async (id: string) => {
+    if (!confirm("حذف هذه الدفعة؟")) return;
+    await api(`/api/payments/${id}`, { method: "DELETE" });
     load();
   };
 
@@ -171,11 +251,39 @@ export default function ExpensesPage() {
   return (
     <div>
       <PageHeader title="المصروفات">
+        <Button
+          variant="secondary"
+          onClick={openPayModal}
+          disabled={vendorPayablesRemaining <= 0}
+        >
+          دفع ذمم تجار
+        </Button>
         <Button variant="secondary" onClick={() => setCategoryModalOpen(true)}>
           فئة جديدة
         </Button>
         <Button onClick={() => setModalOpen(true)}>إضافة مصروف</Button>
       </PageHeader>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <p className="text-sm text-slate-500">
+            {categoryFilter ? "مجموع الفئة المحددة" : "المجموع الكلي للفترة"}
+          </p>
+          <p className="text-2xl font-bold text-red-600">
+            {formatMoney(categoryFilter ? total : chartTotal)}
+          </p>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/40">
+          <p className="text-sm text-slate-600">إجمالي فواتير الذم</p>
+          <p className="text-xl font-bold text-amber-800">{formatMoney(vendorCreditTotal)}</p>
+        </Card>
+        <Card className="border-orange-200 bg-orange-50/40">
+          <p className="text-sm text-slate-600">ذمم التجار المتبقية (دين علينا)</p>
+          <p className="text-2xl font-bold text-orange-700">
+            {formatMoney(vendorPayablesRemaining)}
+          </p>
+        </Card>
+      </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="min-w-[200px]">
@@ -242,15 +350,6 @@ export default function ExpensesPage() {
       </div>
 
       <Card className="mb-4">
-        <p className="text-sm text-slate-500">
-          {categoryFilter ? "مجموع الفئة المحددة" : "المجموع الكلي للفترة"}
-        </p>
-        <p className="text-2xl font-bold text-red-600">
-          {formatMoney(categoryFilter ? total : chartTotal)}
-        </p>
-      </Card>
-
-      <Card className="mb-4">
         <h2 className="mb-2 text-sm font-semibold text-slate-700">ملخص الفئات</h2>
         <div className="flex flex-wrap gap-2">
           {chartData.map((c, i) => (
@@ -279,7 +378,9 @@ export default function ExpensesPage() {
         <thead>
           <tr>
             <Th>الفئة</Th>
-            <Th>البند</Th>
+            <Th>النوع</Th>
+            <Th>التاجر / البند</Th>
+            <Th>فاتورة</Th>
             <Th>المبلغ</Th>
             <Th>التاريخ</Th>
             <Th></Th>
@@ -288,7 +389,7 @@ export default function ExpensesPage() {
         <tbody>
           {items.length === 0 ? (
             <tr>
-              <Td colSpan={5} className="text-center text-slate-400">
+              <Td colSpan={7} className="text-center text-slate-400">
                 لا توجد مصروفات
               </Td>
             </tr>
@@ -296,7 +397,19 @@ export default function ExpensesPage() {
             items.map((e) => (
               <tr key={e.id}>
                 <Td>{e.category.label}</Td>
-                <Td>{e.description || "—"}</Td>
+                <Td>
+                  {e.onCredit ? (
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                      ذم (دين)
+                    </span>
+                  ) : (
+                    <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">
+                      نقدي
+                    </span>
+                  )}
+                </Td>
+                <Td>{e.onCredit ? e.vendorName : e.description || "—"}</Td>
+                <Td>{e.invoiceNumber || "—"}</Td>
                 <Td>{formatMoney(e.amount)}</Td>
                 <Td>{e.expenseDate}</Td>
                 <Td>
@@ -309,6 +422,86 @@ export default function ExpensesPage() {
           )}
         </tbody>
       </Table>
+
+      {vendorPayments.length > 0 && (
+        <Card className="mt-6">
+          <h2 className="mb-3 font-semibold">مدفوعات ذمم التجار</h2>
+          <Table>
+            <thead>
+              <tr>
+                <Th>التاريخ</Th>
+                <Th>المبلغ</Th>
+                <Th>التاجر</Th>
+                <Th>ملاحظات</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {vendorPayments.map((p) => (
+                <tr key={p.id}>
+                  <Td>{p.paymentDate}</Td>
+                  <Td>{formatMoney(p.amount)}</Td>
+                  <Td>{p.vendorName || "—"}</Td>
+                  <Td>{p.notes || "—"}</Td>
+                  <Td>
+                    <Button variant="danger" onClick={() => deleteVendorPayment(p.id)}>
+                      حذف
+                    </Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
+      )}
+
+      <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="دفع ذمم تجار">
+        <form onSubmit={submitPay} className="space-y-3">
+          <p className="text-sm text-slate-600">
+            المتبقي على الذمم:{" "}
+            <strong className="text-orange-700">{formatMoney(vendorPayablesRemaining)}</strong>
+          </p>
+          <p className="text-xs text-slate-500">
+            ادفع أي مبلغ تريده — لا يلزم أن يطابق فاتورة واحدة
+          </p>
+          <div>
+            <Label>مبلغ الدفع *</Label>
+            <Input
+              type="number"
+              min={0.01}
+              max={vendorPayablesRemaining}
+              step="0.01"
+              value={payForm.amount || ""}
+              onChange={(ev) => setPayForm({ ...payForm, amount: +ev.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <Label>اسم التاجر (اختياري)</Label>
+            <Input
+              value={payForm.vendorName}
+              onChange={(ev) => setPayForm({ ...payForm, vendorName: ev.target.value })}
+              placeholder="مثال: محل الزجاج"
+            />
+          </div>
+          <div>
+            <Label>تاريخ الدفع</Label>
+            <Input
+              type="date"
+              value={payForm.paymentDate}
+              onChange={(ev) => setPayForm({ ...payForm, paymentDate: ev.target.value })}
+            />
+          </div>
+          <div>
+            <Label>ملاحظات</Label>
+            <Input
+              value={payForm.notes}
+              onChange={(ev) => setPayForm({ ...payForm, notes: ev.target.value })}
+            />
+          </div>
+          <Button type="submit">تسجيل الدفع</Button>
+        </form>
+      </Modal>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="مصروف جديد">
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -325,6 +518,33 @@ export default function ExpensesPage() {
                 </option>
               ))}
             </Select>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.onCredit}
+              onChange={(ev) => setForm({ ...form, onCredit: ev.target.checked })}
+              className="rounded"
+            />
+            <span>شراء بالذم (دين علينا للتاجر — لا يُخصم من الكاش حتى الدفع)</span>
+          </label>
+          {form.onCredit && (
+            <div>
+              <Label>اسم التاجر *</Label>
+              <Input
+                value={form.vendorName}
+                onChange={(ev) => setForm({ ...form, vendorName: ev.target.value })}
+                required={form.onCredit}
+                placeholder="مثال: محل الزجاج"
+              />
+            </div>
+          )}
+          <div>
+            <Label>رقم الفاتورة</Label>
+            <Input
+              value={form.invoiceNumber}
+              onChange={(ev) => setForm({ ...form, invoiceNumber: ev.target.value })}
+            />
           </div>
           <div>
             <Label>المبلغ</Label>

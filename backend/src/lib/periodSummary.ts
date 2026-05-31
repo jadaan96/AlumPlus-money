@@ -1,5 +1,11 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { toNumber } from "./utils";
+import {
+  totalCreditPurchases,
+  totalVendorCreditPaid,
+  vendorPayablesRemaining,
+} from "./vendorCredit";
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -11,9 +17,12 @@ export type PeriodSummary = {
   workshopsReceived: number;
   workshopsRemaining: number;
   expensesTotal: number;
+  expensesCashOut: number;
+  vendorPayablesRemaining: number;
   salariesTotal: number;
   paymentsTotal: number;
   paymentsToEmployees: number;
+  paymentsToVendors: number;
   paymentsGeneral: number;
   netCashFlow: number;
   salaryRemaining: number;
@@ -30,15 +39,27 @@ export async function getPeriodSummary(periodId: string): Promise<PeriodSummary>
   const workshopsTotal = workshops.reduce((s, w) => s + toNumber(w.totalAmount), 0);
   const workshopsReceived = workshops.reduce((s, w) => s + toNumber(w.receivedAmount), 0);
   const workshopsRemaining = workshops.reduce((s, w) => s + toNumber(w.remainingAmount), 0);
+
   const expensesTotal = expenses.reduce((s, e) => s + toNumber(e.amount), 0);
+  const cashExpenses = expenses
+    .filter((e) => !e.onCredit)
+    .reduce((s, e) => s + toNumber(e.amount), 0);
+  const paymentsToVendors = totalVendorCreditPaid(payments);
+  const vendorRemaining = vendorPayablesRemaining(expenses, payments);
+  const expensesCashOut = round2(cashExpenses + paymentsToVendors);
+
   const salariesTotal = salaries.reduce((s, e) => s + toNumber(e.total), 0);
   const paymentsTotal = payments.reduce((s, p) => s + toNumber(p.amount), 0);
   const paymentsToEmployees = payments
     .filter((p) => p.employeeId)
     .reduce((s, p) => s + toNumber(p.amount), 0);
-  const paymentsGeneral = round2(paymentsTotal - paymentsToEmployees);
+  const paymentsGeneral = round2(
+    paymentsTotal - paymentsToEmployees - paymentsToVendors
+  );
 
-  const netCashFlow = round2(workshopsReceived - expensesTotal - paymentsTotal);
+  const netCashFlow = round2(
+    workshopsReceived - expensesCashOut - paymentsToEmployees - paymentsGeneral
+  );
   const salaryRemaining = round2(salariesTotal - paymentsToEmployees);
 
   return {
@@ -47,9 +68,12 @@ export async function getPeriodSummary(periodId: string): Promise<PeriodSummary>
     workshopsReceived: round2(workshopsReceived),
     workshopsRemaining: round2(workshopsRemaining),
     expensesTotal: round2(expensesTotal),
+    expensesCashOut,
+    vendorPayablesRemaining: vendorRemaining,
     salariesTotal: round2(salariesTotal),
     paymentsTotal: round2(paymentsTotal),
     paymentsToEmployees: round2(paymentsToEmployees),
+    paymentsToVendors: round2(paymentsToVendors),
     paymentsGeneral,
     netCashFlow,
     salaryRemaining,
@@ -64,9 +88,12 @@ export function sumPeriodSummaries(summaries: PeriodSummary[]): PeriodSummary {
       workshopsReceived: acc.workshopsReceived + s.workshopsReceived,
       workshopsRemaining: acc.workshopsRemaining + s.workshopsRemaining,
       expensesTotal: acc.expensesTotal + s.expensesTotal,
+      expensesCashOut: acc.expensesCashOut + s.expensesCashOut,
+      vendorPayablesRemaining: acc.vendorPayablesRemaining + s.vendorPayablesRemaining,
       salariesTotal: acc.salariesTotal + s.salariesTotal,
       paymentsTotal: acc.paymentsTotal + s.paymentsTotal,
       paymentsToEmployees: acc.paymentsToEmployees + s.paymentsToEmployees,
+      paymentsToVendors: acc.paymentsToVendors + s.paymentsToVendors,
       paymentsGeneral: acc.paymentsGeneral + s.paymentsGeneral,
       netCashFlow: acc.netCashFlow + s.netCashFlow,
       salaryRemaining: acc.salaryRemaining + s.salaryRemaining,
@@ -77,9 +104,12 @@ export function sumPeriodSummaries(summaries: PeriodSummary[]): PeriodSummary {
       workshopsReceived: 0,
       workshopsRemaining: 0,
       expensesTotal: 0,
+      expensesCashOut: 0,
+      vendorPayablesRemaining: 0,
       salariesTotal: 0,
       paymentsTotal: 0,
       paymentsToEmployees: 0,
+      paymentsToVendors: 0,
       paymentsGeneral: 0,
       netCashFlow: 0,
       salaryRemaining: 0,
@@ -91,11 +121,16 @@ export function sumPeriodSummaries(summaries: PeriodSummary[]): PeriodSummary {
     workshopsReceived: round2(total.workshopsReceived),
     workshopsRemaining: round2(total.workshopsRemaining),
     expensesTotal: round2(total.expensesTotal),
+    expensesCashOut: round2(total.expensesCashOut),
+    vendorPayablesRemaining: round2(total.vendorPayablesRemaining),
     salariesTotal: round2(total.salariesTotal),
     paymentsTotal: round2(total.paymentsTotal),
     paymentsToEmployees: round2(total.paymentsToEmployees),
+    paymentsToVendors: round2(total.paymentsToVendors),
     paymentsGeneral: round2(total.paymentsGeneral),
     netCashFlow: round2(total.netCashFlow),
     salaryRemaining: round2(total.salaryRemaining),
   };
 }
+
+export { totalCreditPurchases, totalVendorCreditPaid, vendorPayablesRemaining };

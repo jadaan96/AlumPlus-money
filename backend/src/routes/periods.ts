@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createPeriodSchema } from "@workshop/shared";
+import { createPeriodSchema, updatePeriodSchema } from "@workshop/shared";
 import { prisma } from "../lib/prisma";
 import { validateBody } from "../middleware/validate";
 import { asyncHandler } from "../lib/asyncHandler";
@@ -65,6 +65,37 @@ router.get(
       createdAt: period.createdAt.toISOString(),
       label: periodLabel(period.year, period.month),
       summary,
+    });
+  })
+);
+
+router.put(
+  "/:id",
+  validateBody(updatePeriodSchema),
+  asyncHandler(async (req, res) => {
+    const id = String(req.params.id);
+    const { year, month } = req.body;
+
+    const existing = await prisma.period.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "الفترة غير موجودة" });
+
+    const duplicate = await prisma.period.findFirst({
+      where: { year, month, NOT: { id } },
+    });
+    if (duplicate) {
+      return res.status(409).json({ error: "فترة أخرى بنفس الشهر والسنة موجودة مسبقاً" });
+    }
+
+    const period = await prisma.period.update({
+      where: { id },
+      data: { year, month },
+    });
+    res.json({
+      id: period.id,
+      year: period.year,
+      month: period.month,
+      createdAt: period.createdAt.toISOString(),
+      label: periodLabel(year, month),
     });
   })
 );

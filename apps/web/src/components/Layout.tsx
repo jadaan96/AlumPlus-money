@@ -43,12 +43,17 @@ export default function Layout() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api<PeriodItem[]>("/api/periods")
-      .then((data) => {
-        setPeriods(data);
-        if (!periodId && data.length > 0) setPeriodId(data[0].id);
-      })
-      .catch(console.error);
+    const loadPeriods = () => {
+      api<PeriodItem[]>("/api/periods")
+        .then((data) => {
+          setPeriods(data);
+          if (!periodId && data.length > 0) setPeriodId(data[0].id);
+        })
+        .catch(console.error);
+    };
+    loadPeriods();
+    window.addEventListener("periods-updated", loadPeriods);
+    return () => window.removeEventListener("periods-updated", loadPeriods);
   }, [periodId, setPeriodId]);
 
   const handleLogout = async () => {

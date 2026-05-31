@@ -15,10 +15,17 @@ export const createExpenseSchema = expenseCategoryRef
     amount: z.coerce.number().min(0),
     description: z.string().optional().nullable(),
     expenseDate: z.union([z.string().date(), z.string().datetime()]).optional(),
+    onCredit: z.boolean().optional().default(false),
+    vendorName: z.string().optional().nullable(),
+    invoiceNumber: z.string().optional().nullable(),
   })
   .refine((d) => Boolean(d.categoryKey || d.categoryId), {
     message: "يجب تحديد الفئة",
     path: ["categoryId"],
+  })
+  .refine((d) => !d.onCredit || (d.vendorName && d.vendorName.trim().length > 0), {
+    message: "اسم التاجر مطلوب للشراء بالذم",
+    path: ["vendorName"],
   });
 
 export const updateExpenseSchema = expenseCategoryRef
@@ -26,6 +33,9 @@ export const updateExpenseSchema = expenseCategoryRef
     amount: z.coerce.number().min(0).optional(),
     description: z.string().optional().nullable(),
     expenseDate: z.union([z.string().date(), z.string().datetime()]).optional(),
+    onCredit: z.boolean().optional(),
+    vendorName: z.string().optional().nullable(),
+    invoiceNumber: z.string().optional().nullable(),
   })
   .partial()
   .refine(

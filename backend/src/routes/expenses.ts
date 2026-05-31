@@ -12,6 +12,7 @@ import { validateBody, validateQuery } from "../middleware/validate";
 import { asyncHandler } from "../lib/asyncHandler";
 import { resolveExpenseCategory } from "../lib/resolveCategory";
 import { toNumber } from "../lib/utils";
+import { totalCreditPurchases, vendorPayablesRemaining } from "../lib/vendorCredit";
 
 const router = Router();
 
@@ -36,6 +37,9 @@ function serializeExpense(e: {
   amount: Prisma.Decimal;
   description: string | null;
   expenseDate: Date;
+  onCredit: boolean;
+  vendorName: string | null;
+  invoiceNumber: string | null;
   createdAt: Date;
   category: { id: string; key: string; label: string };
 }) {
@@ -46,6 +50,9 @@ function serializeExpense(e: {
     amount: toNumber(e.amount),
     description: e.description,
     expenseDate: e.expenseDate.toISOString().slice(0, 10),
+    onCredit: e.onCredit,
+    vendorName: e.vendorName,
+    invoiceNumber: e.invoiceNumber,
     createdAt: e.createdAt.toISOString(),
     category: e.category,
   };
@@ -163,14 +170,26 @@ router.get(
     const period = await prisma.period.findUnique({ where: { id: periodId } });
     if (!period) return res.status(404).json({ error: "الفترة غير موجودة" });
 
-    const expenses = await prisma.expense.findMany({
-      where: { periodId, ...(categoryId ? { categoryId } : {}) },
-      include: { category: true },
-      orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
-    });
+    const [expenses, payments] = await Promise.all([
+      prisma.expense.findMany({
+        where: { periodId, ...(categoryId ? { categoryId } : {}) },
+        include: { category: true },
+        orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
+      }),
+      prisma.payment.findMany({ where: { periodId } }),
+    ]);
     const items = expenses.map(serializeExpense);
     const total = round2(items.reduce((s, e) => s + e.amount, 0));
-    res.json({ items, total, periodId, categoryId: categoryId ?? null });
+    const vendorCreditTotal = round2(totalCreditPurchases(expenses));
+    const vendorPayables = vendorPayablesRemaining(expenses, payments);
+    res.json({
+      items,
+      total,
+      vendorCreditTotal,
+      vendorPayablesRemaining: vendorPayables,
+      periodId,
+      categoryId: categoryId ?? null,
+    });
   })
 );
 
@@ -178,7 +197,7 @@ router.post(
   "/",
   validateBody(createExpenseSchema),
   asyncHandler(async (req, res) => {
-    const { periodId, categoryKey, categoryId, amount, description, expenseDate } =
+    const { periodId, categoryKey, categoryId, amount, description, expenseDate, onCredit, vendorName, invoiceNumber } =
       req.body;
 
     const period = await prisma.period.findUnique({ where: { id: periodId } });
@@ -194,6 +213,9 @@ router.post(
         amount,
         description: description ?? null,
         expenseDate: expenseDate ? new Date(expenseDate) : new Date(),
+        onCredit: Boolean(onCredit),
+        vendorName: onCredit ? vendorName?.trim() || null : null,
+        invoiceNumber: invoiceNumber?.trim() || null,
       },
       include: { category: true },
     });
@@ -219,6 +241,9 @@ router.put(
         description: data.description,
         categoryId,
         expenseDate: data.expenseDate ? new Date(data.expenseDate) : undefined,
+        onCredit: data.onCredit,
+        vendorName: data.onCredit === false ? null : data.vendorName?.trim() || undefined,
+        invoiceNumber: data.invoiceNumber?.trim() || undefined,
       },
       include: { category: true },
     });

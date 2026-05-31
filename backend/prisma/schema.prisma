@@ -85,15 +85,19 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id          String          @id @default(uuid())
-  periodId    String          @map("period_id")
-  categoryId  String          @map("category_id")
-  amount      Decimal         @db.Decimal(14, 2)
-  description String?
-  expenseDate DateTime        @default(now()) @map("expense_date") @db.Date
-  createdAt   DateTime        @default(now()) @map("created_at")
-  period      Period          @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  category    ExpenseCategory @relation(fields: [categoryId], references: [id])
+  id            String          @id @default(uuid())
+  periodId      String          @map("period_id")
+  categoryId    String          @map("category_id")
+  amount        Decimal         @db.Decimal(14, 2)
+  description   String?
+  expenseDate   DateTime        @default(now()) @map("expense_date") @db.Date
+  onCredit      Boolean         @default(false) @map("on_credit")
+  vendorName    String?         @map("vendor_name")
+  invoiceNumber String?         @map("invoice_number")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  period        Period          @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  payments      Payment[]
 
   @@index([periodId])
   @@map("expenses")
@@ -129,18 +133,23 @@ model SalaryEntry {
 }
 
 model Payment {
-  id            String    @id @default(uuid())
-  periodId      String    @map("period_id")
-  invoiceNumber String?   @map("invoice_number")
-  amount        Decimal   @db.Decimal(14, 2)
-  paymentDate   DateTime  @default(now()) @map("payment_date") @db.Date
-  employeeId    String?   @map("employee_id")
-  rankReceived  String?   @map("rank_received")
-  notes         String?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  period        Period    @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  employee      Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  id              String    @id @default(uuid())
+  periodId        String    @map("period_id")
+  invoiceNumber   String?   @map("invoice_number")
+  amount          Decimal   @db.Decimal(14, 2)
+  paymentDate     DateTime  @default(now()) @map("payment_date") @db.Date
+  employeeId      String?   @map("employee_id")
+  expenseId       String?   @map("expense_id")
+  isVendorCredit  Boolean   @default(false) @map("is_vendor_credit")
+  vendorName      String?   @map("vendor_name")
+  rankReceived    String?   @map("rank_received")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  period          Period    @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  expense         Expense?  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([periodId])
+  @@index([expenseId])
   @@map("payments")
 }

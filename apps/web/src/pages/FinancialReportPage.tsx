@@ -9,9 +9,12 @@ interface PeriodSummary {
   workshopsReceived: number;
   workshopsRemaining: number;
   expensesTotal: number;
+  expensesCashOut: number;
+  vendorPayablesRemaining: number;
   salariesTotal: number;
   paymentsTotal: number;
   paymentsToEmployees: number;
+  paymentsToVendors: number;
   paymentsGeneral: number;
   netCashFlow: number;
   salaryRemaining: number;
@@ -103,6 +106,9 @@ export default function FinancialReportPage() {
           <li>
             <strong>ذمم الموظفين</strong> = الرواتب المسجّلة − المدفوعات المربوطة بموظف
           </li>
+          <li>
+            <strong>ذمم التجار</strong> = فواتير الشراء بالذم − ما دُفع منها (دين علينا)
+          </li>
           <li>لا يشمل رصيد افتتاحي قديم — إن وُجد كاش سابق، أضفه يدوياً للمقارنة</li>
         </ul>
       </Card>
@@ -164,6 +170,12 @@ export default function FinancialReportPage() {
               </p>
             </Card>
             <Card>
+              <p className="text-sm text-slate-600">مجموع ذمم التجار (دين علينا)</p>
+              <p className="text-2xl font-bold text-orange-600">
+                {formatMoney(t.vendorPayablesRemaining)}
+              </p>
+            </Card>
+            <Card>
               <p className="text-sm text-slate-600">إجمالي المستلم من الورش</p>
               <p className="text-2xl font-bold text-green-600">
                 {formatMoney(t.workshopsReceived)}
@@ -213,6 +225,7 @@ export default function FinancialReportPage() {
                   <Th>مدفوع موظفين</Th>
                   <Th>مدفوع آخر</Th>
                   <Th>ذمم رواتب</Th>
+                  <Th>ذمم تجار</Th>
                   <Th>صافي كاش</Th>
                   <Th>كاش تراكمي</Th>
                 </tr>
@@ -232,6 +245,9 @@ export default function FinancialReportPage() {
                     <Td>{formatMoney(p.summary.paymentsToEmployees)}</Td>
                     <Td>{formatMoney(p.summary.paymentsGeneral)}</Td>
                     <Td>{formatMoney(p.summary.salaryRemaining)}</Td>
+                    <Td className="text-orange-600">
+                      {formatMoney(p.summary.vendorPayablesRemaining)}
+                    </Td>
                     <Td
                       className={
                         p.summary.netCashFlow >= 0 ? "text-green-700" : "text-red-600"
@@ -255,6 +271,7 @@ export default function FinancialReportPage() {
                   <Td>{formatMoney(t.paymentsToEmployees)}</Td>
                   <Td>{formatMoney(t.paymentsGeneral)}</Td>
                   <Td>{formatMoney(t.salaryRemaining)}</Td>
+                  <Td>{formatMoney(t.vendorPayablesRemaining)}</Td>
                   <Td>{formatMoney(t.netCashFlow)}</Td>
                   <Td>{formatMoney(t.cumulativeCash)}</Td>
                 </tr>

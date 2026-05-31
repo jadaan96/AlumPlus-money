@@ -1,5 +1,5 @@
-import { useEffect, useState, FormEvent } from "react";
-import { api } from "@/lib/api";
+import { useEffect, useState, FormEvent, useRef } from "react";
+import { api, getAccessToken } from "@/lib/api";
 import { usePeriod } from "@/context/PeriodContext";
 import { formatMoney } from "@/lib/format";
 import { WORKSHOP_STATUSES, WORKSHOP_STATUS_LABELS, WorkshopStatus } from "@workshop/shared";
@@ -53,6 +53,11 @@ export default function WorkshopsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Workshop | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState<{ imported: number; errors: string[] } | null>(
+    null
+  );
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     if (!periodId) return;
@@ -121,6 +126,32 @@ export default function WorkshopsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const importCsv = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!periodId || !fileRef.current?.files?.[0]) return;
+    setImporting(true);
+    setImportReport(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", fileRef.current.files[0]);
+      const res = await fetch(`/api/workshops/period/${periodId}/import`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+        credentials: "include",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل الاستيراد");
+      setImportReport({ imported: data.imported, errors: data.errors || [] });
+      fileRef.current.value = "";
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "فشل الاستيراد");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (!periodId) return <p className="text-slate-500">اختر فترة أولاً</p>;
 
   return (
@@ -129,6 +160,34 @@ export default function WorkshopsPage() {
         <Button onClick={openCreate}>إضافة ورشة</Button>
         <Button variant="secondary" onClick={exportCsv}>تصدير CSV</Button>
       </PageHeader>
+
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="mb-2 text-sm font-medium text-slate-700">استيراد من CSV</p>
+        <p className="mb-3 text-xs text-slate-500">
+          استخدم ملف CSV بأعمدة: الاسم، الإجمالي، المستلم، المتبقي، الحالة، المكان، نوع المقطع،
+          المصدر، الهاتف، تاريخ التسليم، تاريخ الاستلام، ملاحظات
+        </p>
+        <form onSubmit={importCsv} className="flex flex-wrap items-end gap-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="text-sm"
+            required
+          />
+          <Button type="submit" variant="secondary" disabled={importing}>
+            {importing ? "جاري الاستيراد..." : "استيراد CSV"}
+          </Button>
+        </form>
+        {importReport && (
+          <p className="mt-2 text-sm text-green-700">
+            تم استيراد {importReport.imported} ورشة
+            {importReport.errors.length > 0 && (
+              <span className="text-amber-600"> — {importReport.errors.length} تحذير</span>
+            )}
+          </p>
+        )}
+      </div>
 
       <div className="mb-4 flex flex-wrap gap-3">
         <Input

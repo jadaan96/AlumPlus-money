@@ -2,9 +2,9 @@ import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { prisma } from "../lib/prisma";
-import { calcRemaining, parsePeriodFromFilename, toNumber } from "../lib/utils";
-import { WorkshopStatus } from "@prisma/client";
+import { parsePeriodFromFilename, toNumber } from "../lib/utils";
 import { asyncHandler } from "../lib/asyncHandler";
+import { workshopFromExcelRow } from "../lib/workshopImport";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const router = Router();
@@ -17,14 +17,6 @@ function cellStr(v: unknown): string {
 function cellNum(v: unknown): number {
   const n = parseFloat(String(v ?? "0").replace(/,/g, ""));
   return Number.isFinite(n) ? n : 0;
-}
-
-function mapStatus(raw: string): WorkshopStatus {
-  const s = raw.trim();
-  if (s.includes("مكتمل")) return "COMPLETED";
-  if (s.includes("متأخر")) return "OVERDUE";
-  if (s.includes("ملغ")) return "CANCELLED";
-  return "COLLECTING";
 }
 
 router.post("/", upload.single("file"), asyncHandler(async (req, res) => {
@@ -73,27 +65,25 @@ router.post("/", upload.single("file"), asyncHandler(async (req, res) => {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws1, { defval: "" });
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      const name =
-        cellStr(r["اسم الورشة"] || r["الاسم"] || r["name"] || r["Name"] || Object.values(r)[0]);
-      if (!name || name === "المجموع" || name.includes("مجموع")) continue;
+      const parsed = workshopFromExcelRow(r);
+      if (!parsed) continue;
       try {
-        const total = cellNum(r["المبلغ الإجمالي"] || r["الإجمالي"] || r["total"]);
-        const received = cellNum(r["المستلم"] || r["received"]);
-        const remaining = calcRemaining(total, received, cellNum(r["المتبقي"]));
         await prisma.workshop.create({
           data: {
             periodId: period.id,
-            name,
-            totalAmount: total,
-            receivedAmount: received,
-            remainingAmount: remaining,
-            location: cellStr(r["المكان"] || r["location"]) || null,
-            status: mapStatus(cellStr(r["الحالة"] || r["status"])),
-            sectionType: cellStr(r["نوع المقطع"]) || null,
-            source: cellStr(r["المصدر"] || r["من وين"]) || null,
-            phone: cellStr(r["الهاتف"] || r["phone"]) || null,
-            notes: cellStr(r["ملاحظات"] || r["notes"]) || null,
-            link: cellStr(r["رابط"] || r["link"]) || null,
+            name: parsed.name,
+            totalAmount: parsed.totalAmount,
+            receivedAmount: parsed.receivedAmount,
+            remainingAmount: parsed.remainingAmount,
+            location: parsed.location,
+            status: parsed.status,
+            sectionType: parsed.sectionType,
+            source: parsed.source,
+            phone: parsed.phone,
+            notes: parsed.notes,
+            link: parsed.link,
+            deliveryDate: parsed.deliveryDate ? new Date(parsed.deliveryDate) : null,
+            receivedDate: parsed.receivedDate ? new Date(parsed.receivedDate) : null,
           },
         });
         report.workshops.imported++;

@@ -5,4 +5,7 @@ export const createPeriodSchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 });
 
+export const updatePeriodSchema = createPeriodSchema;
+
 export type CreatePeriodInput = z.infer<typeof createPeriodSchema>;
+export type UpdatePeriodInput = z.infer<typeof updatePeriodSchema>;

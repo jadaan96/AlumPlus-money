@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import { Prisma } from "@prisma/client";
 import {
   createWorkshopSchema,
@@ -9,6 +10,9 @@ import { prisma } from "../lib/prisma";
 import { validateBody, validateQuery } from "../middleware/validate";
 import { asyncHandler } from "../lib/asyncHandler";
 import { calcRemaining, toNumber } from "../lib/utils";
+import { parseWorkshopsCsv } from "../lib/workshopImport";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -112,6 +116,63 @@ router.get(
       `attachment; filename="workshops-${periodId}.csv"`
     );
     res.send("\uFEFF" + header + rows);
+  })
+);
+
+router.post(
+  "/period/:periodId/import",
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const periodId = String(req.params.periodId);
+    const period = await prisma.period.findUnique({ where: { id: periodId } });
+    if (!period) return res.status(404).json({ error: "الفترة غير موجودة" });
+    if (!req.file) return res.status(400).json({ error: "لم يُرفع ملف CSV" });
+
+    const name = req.file.originalname.toLowerCase();
+    if (!name.endsWith(".csv") && !name.endsWith(".txt")) {
+      return res.status(400).json({ error: "الملف يجب أن يكون CSV" });
+    }
+
+    const text = req.file.buffer.toString("utf8");
+    const { rows, errors: parseErrors } = parseWorkshopsCsv(text);
+    if (rows.length === 0) {
+      return res.status(400).json({
+        error: parseErrors[0] || "لا توجد ورش في الملف",
+        errors: parseErrors,
+      });
+    }
+
+    const errors: string[] = [...parseErrors];
+    let imported = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const w = rows[i];
+      try {
+        await prisma.workshop.create({
+          data: {
+            periodId,
+            name: w.name,
+            totalAmount: w.totalAmount,
+            receivedAmount: w.receivedAmount,
+            remainingAmount: w.remainingAmount,
+            location: w.location,
+            status: w.status,
+            sectionType: w.sectionType,
+            source: w.source,
+            phone: w.phone,
+            notes: w.notes,
+            link: w.link,
+            deliveryDate: w.deliveryDate ? new Date(w.deliveryDate) : null,
+            receivedDate: w.receivedDate ? new Date(w.receivedDate) : null,
+          },
+        });
+        imported++;
+      } catch (e) {
+        errors.push(`سطر ${i + 2}: ${(e as Error).message}`);
+      }
+    }
+
+    res.json({ imported, errors, periodId });
   })
 );
 
